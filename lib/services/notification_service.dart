@@ -8,7 +8,7 @@ class NotificationService {
   static final NotificationService _instance = NotificationService._internal();
   factory NotificationService() => _instance;
   NotificationService._internal();
-  
+
   Future<void> sendAdminNotification({
     required String title,
     required String body,
@@ -17,12 +17,12 @@ class NotificationService {
     try {
       // Get all admin tokens
       final adminTokens = await _getAdminTokens();
-      
+
       if (adminTokens.isEmpty) {
         debugPrint('No admin tokens found for notification');
         return;
       }
-      
+
       // Store notification in Firestore
       await FirebaseFirestore.instance.collection('notifications').add({
         'title': title,
@@ -32,13 +32,13 @@ class NotificationService {
         'createdAt': FieldValue.serverTimestamp(),
         'read': false,
       });
-      
+
       debugPrint('Admin notification stored successfully');
     } catch (e) {
       debugPrint('Error sending admin notification: $e');
     }
   }
-  
+
   Future<List<String>> _getAdminTokens() async {
     try {
       final snapshot = await FirebaseFirestore.instance
@@ -46,7 +46,7 @@ class NotificationService {
           .where('role', isEqualTo: 'admin')
           .where('fcmToken', isNull: false)
           .get();
-          
+
       return snapshot.docs
           .map((doc) => doc.data()['fcmToken'] as String)
           .where((token) => token.isNotEmpty)
@@ -59,7 +59,8 @@ class NotificationService {
 
   final FirebaseMessaging _messaging = FirebaseMessaging.instance;
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
-  final FlutterLocalNotificationsPlugin _localNotifications = FlutterLocalNotificationsPlugin();
+  final FlutterLocalNotificationsPlugin _localNotifications =
+      FlutterLocalNotificationsPlugin();
 
   String? _fcmToken;
   String? get fcmToken => _fcmToken;
@@ -87,13 +88,14 @@ class NotificationService {
     }
 
     // Initialize local notifications
-    const androidSettings = AndroidInitializationSettings('@mipmap/ic_launcher');
+    const androidSettings =
+        AndroidInitializationSettings('@mipmap/ic_launcher');
     const iosSettings = DarwinInitializationSettings(
       requestAlertPermission: true,
       requestBadgePermission: true,
       requestSoundPermission: true,
     );
-    
+
     const initSettings = InitializationSettings(
       android: androidSettings,
       iOS: iosSettings,
@@ -131,7 +133,7 @@ class NotificationService {
 
   Future<void> _handleForegroundMessage(RemoteMessage message) async {
     debugPrint('Received foreground message: ${message.messageId}');
-    
+
     // Show local notification
     await _showLocalNotification(
       title: message.notification?.title ?? 'VMS Notification',
@@ -179,14 +181,60 @@ class NotificationService {
     );
   }
 
+  // Check if user has enabled a specific notification type
+  Future<bool> _shouldSendNotification(
+      String userId, String notificationType) async {
+    try {
+      final doc = await _firestore
+          .collection('users')
+          .doc(userId)
+          .collection('settings')
+          .doc('notifications')
+          .get();
+
+      if (!doc.exists) return true; // Default to true if no settings
+
+      final settings = doc.data()!;
+
+      // Check global notification enable
+      final enableNotifications = settings['enablePush'] ?? true;
+      if (!enableNotifications) return false;
+
+      // Check specific notification type
+      switch (notificationType) {
+        case 'new_visitor':
+          return settings['notifyOnNewVisitors'] ?? true;
+        case 'approval_status':
+          return settings['notifyOnApprovalStatus'] ?? true;
+        case 'checkout':
+          return settings['notifyOnCheckOut'] ?? true;
+        default:
+          return true;
+      }
+    } catch (e) {
+      debugPrint('Error checking notification settings: $e');
+      return true; // Default to true on error
+    }
+  }
+
   // Send notification to specific user
   Future<void> sendNotificationToUser({
     required String userId,
     required String title,
     required String body,
     Map<String, dynamic>? data,
+    String notificationType = 'general',
   }) async {
     try {
+      // Check if user wants this notification type
+      final shouldSend =
+          await _shouldSendNotification(userId, notificationType);
+      if (!shouldSend) {
+        debugPrint(
+            'Notification suppressed for user $userId (type: $notificationType)');
+        return;
+      }
+
       // Store notification in Firestore
       await _firestore.collection('notifications').add({
         'userId': userId,
@@ -222,6 +270,7 @@ class NotificationService {
         'visitorId': visitorId,
         'visitorName': visitorName,
       },
+      notificationType: 'new_visitor',
     );
   }
 
@@ -234,7 +283,7 @@ class NotificationService {
     await sendNotificationToUser(
       userId: visitorId,
       title: approved ? 'Visit Approved' : 'Visit Rejected',
-      body: approved 
+      body: approved
           ? 'Your visit has been approved. Please proceed to reception.'
           : 'Your visit request has been rejected. Please contact the host.',
       data: {
@@ -242,16 +291,40 @@ class NotificationService {
         'visitorId': visitorId,
         'approved': approved,
       },
+      notificationType: 'approval_status',
     );
 
-    // Also show local notification
-    await _showLocalNotification(
-      title: approved ? 'Visit Approved' : 'Visit Rejected',
-      body: approved 
-          ? 'Your visit has been approved. Please proceed to reception.'
-          : 'Your visit request has been rejected. Please contact the host.',
-      payload: visitorId,
-    );
+    // Also show local notification if enabled
+    final shouldShowLocal = await _shouldShowLocalNotification(visitorId);
+    if (shouldShowLocal) {
+      await _showLocalNotification(
+        title: approved ? 'Visit Approved' : 'Visit Rejected',
+        body: approved
+            ? 'Your visit has been approved. Please proceed to reception.'
+            : 'Your visit request has been rejected. Please contact the host.',
+        payload: visitorId,
+      );
+    }
+  }
+
+  // Check if local notifications are enabled for user
+  Future<bool> _shouldShowLocalNotification(String userId) async {
+    try {
+      final doc = await _firestore
+          .collection('users')
+          .doc(userId)
+          .collection('settings')
+          .doc('notifications')
+          .get();
+
+      if (!doc.exists) return true; // Default to true if no settings
+
+      final settings = doc.data()!;
+      return settings['enableLocal'] ?? true;
+    } catch (e) {
+      debugPrint('Error checking local notification settings: $e');
+      return true; // Default to true on error
+    }
   }
 
   // Send notification to admin about system events
@@ -259,6 +332,7 @@ class NotificationService {
     required String title,
     required String body,
     Map<String, dynamic>? data,
+    String notificationType = 'general',
   }) async {
     // Get all admin users
     final adminQuery = await _firestore
@@ -272,6 +346,7 @@ class NotificationService {
         title: title,
         body: body,
         data: data,
+        notificationType: notificationType,
       );
     }
   }
@@ -295,7 +370,10 @@ class NotificationService {
   // Mark notification as read
   Future<void> markAsRead(String notificationId) async {
     try {
-      await _firestore.collection('notifications').doc(notificationId).update({'read': true});
+      await _firestore
+          .collection('notifications')
+          .doc(notificationId)
+          .update({'read': true});
     } catch (e) {
       throw Exception('Failed to mark notification as read: $e');
     }
@@ -311,13 +389,13 @@ class NotificationService {
       if (snapshot.exists) {
         final data = snapshot.data()!;
         final status = data['status'] as String?;
-        
+
         if (status != null) {
           // Check if status changed to approved or rejected
           if (status == 'approved' || status == 'rejected') {
             final visitorName = data['name'] as String? ?? 'Visitor';
             final approved = status == 'approved';
-            
+
             // Send notification
             notifyVisitorApproval(
               visitorId: visitorId,
@@ -395,18 +473,24 @@ class NotificationService {
         .orderBy('createdAt', descending: true)
         .limit(50)
         .snapshots()
-        .listen((snapshot) {
+        .listen((snapshot) async {
       for (final change in snapshot.docChanges) {
         if (change.type == DocumentChangeType.added) {
           final data = change.doc.data();
           if (data == null) continue;
           final name = data['name']?.toString() ?? 'Visitor';
           final purpose = data['purpose']?.toString() ?? '';
-          _showLocalNotification(
-            title: 'Visitor waiting for approval',
-            body: '$name • $purpose',
-            payload: 'visitorId=${change.doc.id}',
-          );
+
+          // Check if admin wants this notification
+          final shouldNotify =
+              await _shouldSendAdminNotification('new_visitor');
+          if (shouldNotify) {
+            _showLocalNotification(
+              title: 'Visitor waiting for approval',
+              body: '$name • $purpose',
+              payload: 'visitorId=${change.doc.id}',
+            );
+          }
           _visitorStatusCache[change.doc.id] = 'pending';
         }
       }
@@ -420,7 +504,7 @@ class NotificationService {
         .orderBy('checkOut', descending: true)
         .limit(100)
         .snapshots()
-        .listen((snapshot) {
+        .listen((snapshot) async {
       for (final change in snapshot.docChanges) {
         final data = change.doc.data();
         if (data == null) continue;
@@ -428,11 +512,16 @@ class NotificationService {
         final previousStatus = _visitorStatusCache[change.doc.id];
         if (newStatus == 'completed' && previousStatus != 'completed') {
           final name = data['name']?.toString() ?? 'Visitor';
-          _showLocalNotification(
-            title: 'Visitor checked out',
-            body: '$name has checked out.',
-            payload: 'visitorId=${change.doc.id}',
-          );
+
+          // Check if admin wants this notification
+          final shouldNotify = await _shouldSendAdminNotification('checkout');
+          if (shouldNotify) {
+            _showLocalNotification(
+              title: 'Visitor checked out',
+              body: '$name has checked out.',
+              payload: 'visitorId=${change.doc.id}',
+            );
+          }
         }
         if (newStatus != null) {
           _visitorStatusCache[change.doc.id] = newStatus;
@@ -441,6 +530,50 @@ class NotificationService {
     }, onError: (e) {
       debugPrint('Completed listener error: $e');
     });
+  }
+
+  // Check if admin notifications are enabled for a specific type
+  Future<bool> _shouldSendAdminNotification(String notificationType) async {
+    try {
+      // For simplicity, we'll check the first admin's settings
+      // In a real app, you might want to check all admins or have global settings
+      final adminQuery = await _firestore
+          .collection('users')
+          .where('role', isEqualTo: 'admin')
+          .limit(1)
+          .get();
+
+      if (adminQuery.docs.isEmpty) return true;
+
+      final adminId = adminQuery.docs.first.id;
+      final doc = await _firestore
+          .collection('users')
+          .doc(adminId)
+          .collection('settings')
+          .doc('notifications')
+          .get();
+
+      if (!doc.exists) return true;
+
+      final settings = doc.data()!;
+
+      // Check global notification enable
+      final enableNotifications = settings['enableLocal'] ?? true;
+      if (!enableNotifications) return false;
+
+      // Check specific notification type
+      switch (notificationType) {
+        case 'new_visitor':
+          return settings['notifyOnNewVisitors'] ?? true;
+        case 'checkout':
+          return settings['notifyOnCheckOut'] ?? true;
+        default:
+          return true;
+      }
+    } catch (e) {
+      debugPrint('Error checking admin notification settings: $e');
+      return true;
+    }
   }
 
   Future<void> stopAdminEventListeners() async {

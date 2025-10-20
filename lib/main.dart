@@ -11,7 +11,7 @@ import 'screens/visitor_status_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  
+
   try {
     await Firebase.initializeApp(
       options: DefaultFirebaseOptions.currentPlatform,
@@ -20,7 +20,7 @@ void main() async {
   } catch (e) {
     debugPrint('Firebase initialization error: $e');
   }
-  
+
   runApp(const MyApp());
 }
 
@@ -36,10 +36,6 @@ class MyApp extends StatelessWidget {
       onSecondary: Colors.white,
       surface: Colors.grey[900]!,
       onSurface: Colors.grey[100]!,
-      background: Colors.black,
-      onBackground: Colors.grey[100]!,
-      error: Colors.red[400]!,
-      onError: Colors.white,
       brightness: Brightness.dark,
     );
 

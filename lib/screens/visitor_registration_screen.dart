@@ -1,6 +1,8 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:image_picker/image_picker.dart';
 import '../models/visitor_model.dart';
 import '../services/visitor_service.dart';
 import '../models/host_model.dart';
@@ -25,10 +27,12 @@ class _VisitorRegistrationScreenState extends State<VisitorRegistrationScreen> {
   final _contactController = TextEditingController();
   final _emailController = TextEditingController();
   final _purposeController = TextEditingController();
+  final ImagePicker _picker = ImagePicker();
   String? _selectedHostId;
   String? _selectedHostName;
   List<Host> _hosts = [];
   bool _isLoading = false;
+  String? _photoPath;
 
   @override
   void initState() {
@@ -52,6 +56,15 @@ class _VisitorRegistrationScreenState extends State<VisitorRegistrationScreen> {
           SnackBar(content: Text('Error loading hosts: $e')),
         );
       }
+    }
+  }
+
+  Future<void> _capturePhoto() async {
+    final XFile? photo = await _picker.pickImage(source: ImageSource.camera);
+    if (photo != null) {
+      setState(() {
+        _photoPath = photo.path;
+      });
     }
   }
 
@@ -81,16 +94,15 @@ class _VisitorRegistrationScreenState extends State<VisitorRegistrationScreen> {
         // Existing visitor - reuse their QR code and create new visit
         visitorId = existingVisitor['id'];
         qrCode = existingVisitor['qrCode'];
-        
+
         await _createNewVisitForExistingVisitor(visitorId);
-        
+
         if (!mounted) return;
-        
+
         // Show message about reusing existing QR code
         _showExistingVisitorDialog(existingVisitor, qrCode);
       } else {
         // New visitor - create new registration
-        isNewVisitor = true;
         final visitor = Visitor(
           name: _nameController.text.trim(),
           contact: _contactController.text.trim(),
@@ -105,12 +117,45 @@ class _VisitorRegistrationScreenState extends State<VisitorRegistrationScreen> {
         );
 
         visitorId = await _firebaseServices.addVisitor(visitor);
+
+        // Upload photo after creating visitor
+        if (_photoPath != null) {
+          try {
+            final photoUrl = await _firebaseServices.uploadVisitorPhoto(
+              visitorId,
+              _photoPath!,
+            );
+
+            // Update visitor with photo URL
+            final updatedVisitor = Visitor(
+              id: visitorId,
+              name: visitor.name,
+              contact: visitor.contact,
+              email: visitor.email,
+              purpose: visitor.purpose,
+              hostId: visitor.hostId,
+              hostName: visitor.hostName,
+              visitDate: visitor.visitDate,
+              checkIn: visitor.checkIn,
+              status: visitor.status,
+              isRegistered: visitor.isRegistered,
+              photoUrl: photoUrl,
+            );
+
+            await _firebaseServices.updateVisitor(updatedVisitor);
+          } catch (e) {
+            // If photo upload fails, we continue with registration
+            debugPrint('Photo upload failed: $e');
+          }
+        }
+
         qrCode = visitorId; // QR code is the visitor ID
 
         if (!mounted) return;
 
         // Show QR code dialog for new visitor
-        _showQRCodeDialog(qrCode, visitor.name, visitor.contact, visitor.purpose, isNewVisitor);
+        _showQRCodeDialog(qrCode, visitor.name, visitor.contact,
+            visitor.purpose, isNewVisitor);
       }
 
       // Clear form
@@ -121,6 +166,7 @@ class _VisitorRegistrationScreenState extends State<VisitorRegistrationScreen> {
       setState(() {
         _selectedHostId = null;
         _selectedHostName = null;
+        _photoPath = null;
       });
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -131,7 +177,8 @@ class _VisitorRegistrationScreenState extends State<VisitorRegistrationScreen> {
     }
   }
 
-  Future<Map<String, dynamic>?> _checkExistingVisitor(String contact, String email) async {
+  Future<Map<String, dynamic>?> _checkExistingVisitor(
+      String contact, String email) async {
     try {
       // Check by contact first
       var snapshot = await FirebaseFirestore.instance
@@ -190,7 +237,8 @@ class _VisitorRegistrationScreenState extends State<VisitorRegistrationScreen> {
     }
   }
 
-  void _showExistingVisitorDialog(Map<String, dynamic> existingVisitor, String qrCode) {
+  void _showExistingVisitorDialog(
+      Map<String, dynamic> existingVisitor, String qrCode) {
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -221,7 +269,6 @@ class _VisitorRegistrationScreenState extends State<VisitorRegistrationScreen> {
                 ],
               ),
               const SizedBox(height: 16),
-              
               Container(
                 width: double.infinity,
                 padding: const EdgeInsets.all(16),
@@ -260,7 +307,6 @@ class _VisitorRegistrationScreenState extends State<VisitorRegistrationScreen> {
                 ),
               ),
               const SizedBox(height: 16),
-              
               Text(
                 'You can use your existing QR code for this visit. New visit has been registered successfully!',
                 style: TextStyle(
@@ -270,7 +316,6 @@ class _VisitorRegistrationScreenState extends State<VisitorRegistrationScreen> {
                 textAlign: TextAlign.center,
               ),
               const SizedBox(height: 24),
-              
               Row(
                 children: [
                   Expanded(
@@ -311,7 +356,8 @@ class _VisitorRegistrationScreenState extends State<VisitorRegistrationScreen> {
     );
   }
 
-  void _showQRCodeDialog(String qrData, String visitorName, String visitorContact, String visitorPurpose, bool isNewVisitor) {
+  void _showQRCodeDialog(String qrData, String visitorName,
+      String visitorContact, String visitorPurpose, bool isNewVisitor) {
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -357,7 +403,12 @@ class _VisitorRegistrationScreenState extends State<VisitorRegistrationScreen> {
                   decoration: BoxDecoration(
                     color: Colors.grey[850]!,
                     borderRadius: BorderRadius.circular(16),
-                    boxShadow: [BoxShadow(color: Colors.grey[800]!.withOpacity(0.3), blurRadius: 8, offset: const Offset(0, 2))],
+                    boxShadow: [
+                      BoxShadow(
+                          color: Colors.grey[800]!.withOpacity(0.3),
+                          blurRadius: 8,
+                          offset: const Offset(0, 2))
+                    ],
                   ),
                   child: Column(
                     children: [
@@ -365,13 +416,86 @@ class _VisitorRegistrationScreenState extends State<VisitorRegistrationScreen> {
                       const SizedBox(height: 16),
                       Text(
                         'Register New Visitor',
-                        style: TextStyle(fontSize: 24, color: Colors.grey[100], fontWeight: FontWeight.bold),
+                        style: TextStyle(
+                            fontSize: 24,
+                            color: Colors.grey[100],
+                            fontWeight: FontWeight.bold),
                       ),
                       const SizedBox(height: 8),
                       Text(
                         'Enter visitor details to generate QR code',
                         style: TextStyle(fontSize: 16, color: Colors.grey[400]),
                         textAlign: TextAlign.center,
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 24),
+
+                // Photo Capture Section
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(20),
+                  decoration: BoxDecoration(
+                    color: Colors.grey[850]!,
+                    borderRadius: BorderRadius.circular(16),
+                    boxShadow: [
+                      BoxShadow(
+                          color: Colors.grey[800]!.withOpacity(0.3),
+                          blurRadius: 8,
+                          offset: const Offset(0, 2))
+                    ],
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Visitor Photo',
+                        style: TextStyle(
+                            fontSize: 18,
+                            color: Colors.grey[100],
+                            fontWeight: FontWeight.bold),
+                      ),
+                      const SizedBox(height: 16),
+                      Center(
+                        child: Column(
+                          children: [
+                            // Display captured photo or default icon
+                            Container(
+                              width: 120,
+                              height: 120,
+                              decoration: BoxDecoration(
+                                color: Colors.grey[700],
+                                borderRadius: BorderRadius.circular(60),
+                                border: Border.all(
+                                    color: Colors.grey[600]!, width: 2),
+                              ),
+                              child: _photoPath != null
+                                  ? ClipRRect(
+                                      borderRadius: BorderRadius.circular(60),
+                                      child: Image.file(
+                                        File(_photoPath!),
+                                        fit: BoxFit.cover,
+                                      ),
+                                    )
+                                  : Icon(
+                                      Icons.person,
+                                      size: 60,
+                                      color: Colors.grey[400],
+                                    ),
+                            ),
+                            const SizedBox(height: 16),
+                            ElevatedButton.icon(
+                              onPressed: _capturePhoto,
+                              icon: const Icon(Icons.camera_alt),
+                              label: const Text('Capture Photo'),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.grey[700],
+                                foregroundColor: Colors.white,
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
                     ],
                   ),
@@ -385,17 +509,25 @@ class _VisitorRegistrationScreenState extends State<VisitorRegistrationScreen> {
                   decoration: BoxDecoration(
                     color: Colors.grey[850]!,
                     borderRadius: BorderRadius.circular(16),
-                    boxShadow: [BoxShadow(color: Colors.grey[800]!.withOpacity(0.3), blurRadius: 8, offset: const Offset(0, 2))],
+                    boxShadow: [
+                      BoxShadow(
+                          color: Colors.grey[800]!.withOpacity(0.3),
+                          blurRadius: 8,
+                          offset: const Offset(0, 2))
+                    ],
                   ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
                         'Visitor Information',
-                        style: TextStyle(fontSize: 18, color: Colors.grey[100], fontWeight: FontWeight.bold),
+                        style: TextStyle(
+                            fontSize: 18,
+                            color: Colors.grey[100],
+                            fontWeight: FontWeight.bold),
                       ),
                       const SizedBox(height: 20),
-                      
+
                       // Name Field
                       TextFormField(
                         controller: _nameController,
@@ -403,8 +535,10 @@ class _VisitorRegistrationScreenState extends State<VisitorRegistrationScreen> {
                         decoration: InputDecoration(
                           labelText: 'Full Name',
                           labelStyle: TextStyle(color: Colors.grey[400]),
-                          prefixIcon: Icon(Icons.person, color: Colors.grey[400]),
-                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                          prefixIcon:
+                              Icon(Icons.person, color: Colors.grey[400]),
+                          border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12)),
                           enabledBorder: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(12),
                             borderSide: BorderSide(color: Colors.grey[600]!),
@@ -416,11 +550,12 @@ class _VisitorRegistrationScreenState extends State<VisitorRegistrationScreen> {
                         ),
                         validator: ValidationHelper.validateName,
                         onChanged: (value) {
-                          _nameController.text = ValidationHelper.sanitizeInput(value);
+                          _nameController.text =
+                              ValidationHelper.sanitizeInput(value);
                         },
                       ),
                       const SizedBox(height: 16),
-                      
+
                       // Contact Field
                       TextFormField(
                         controller: _contactController,
@@ -428,8 +563,10 @@ class _VisitorRegistrationScreenState extends State<VisitorRegistrationScreen> {
                         decoration: InputDecoration(
                           labelText: 'Contact Number',
                           labelStyle: TextStyle(color: Colors.grey[400]),
-                          prefixIcon: Icon(Icons.phone, color: Colors.grey[400]),
-                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                          prefixIcon:
+                              Icon(Icons.phone, color: Colors.grey[400]),
+                          border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12)),
                           enabledBorder: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(12),
                             borderSide: BorderSide(color: Colors.grey[600]!),
@@ -447,7 +584,7 @@ class _VisitorRegistrationScreenState extends State<VisitorRegistrationScreen> {
                         },
                       ),
                       const SizedBox(height: 16),
-                      
+
                       // Email Field
                       TextFormField(
                         controller: _emailController,
@@ -455,8 +592,10 @@ class _VisitorRegistrationScreenState extends State<VisitorRegistrationScreen> {
                         decoration: InputDecoration(
                           labelText: 'Email Address',
                           labelStyle: TextStyle(color: Colors.grey[400]),
-                          prefixIcon: Icon(Icons.email, color: Colors.grey[400]),
-                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                          prefixIcon:
+                              Icon(Icons.email, color: Colors.grey[400]),
+                          border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12)),
                           enabledBorder: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(12),
                             borderSide: BorderSide(color: Colors.grey[600]!),
@@ -470,14 +609,15 @@ class _VisitorRegistrationScreenState extends State<VisitorRegistrationScreen> {
                           if (value == null || value.trim().isEmpty) {
                             return 'Please enter email address';
                           }
-                          if (!RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$').hasMatch(value.trim())) {
+                          if (!RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$')
+                              .hasMatch(value.trim())) {
                             return 'Please enter a valid email address';
                           }
                           return null;
                         },
                       ),
                       const SizedBox(height: 16),
-                      
+
                       // Purpose Field
                       TextFormField(
                         controller: _purposeController,
@@ -485,8 +625,10 @@ class _VisitorRegistrationScreenState extends State<VisitorRegistrationScreen> {
                         decoration: InputDecoration(
                           labelText: 'Purpose of Visit',
                           labelStyle: TextStyle(color: Colors.grey[400]),
-                          prefixIcon: Icon(Icons.description, color: Colors.grey[400]),
-                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                          prefixIcon:
+                              Icon(Icons.description, color: Colors.grey[400]),
+                          border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12)),
                           enabledBorder: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(12),
                             borderSide: BorderSide(color: Colors.grey[600]!),
@@ -504,7 +646,7 @@ class _VisitorRegistrationScreenState extends State<VisitorRegistrationScreen> {
                         },
                       ),
                       const SizedBox(height: 16),
-                      
+
                       // Host Selection
                       DropdownButtonFormField<String>(
                         value: _selectedHostId,
@@ -513,7 +655,8 @@ class _VisitorRegistrationScreenState extends State<VisitorRegistrationScreen> {
                           labelText: 'Select Host',
                           labelStyle: TextStyle(color: Colors.grey[400]),
                           prefixIcon: Icon(Icons.work, color: Colors.grey[400]),
-                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                          border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12)),
                           enabledBorder: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(12),
                             borderSide: BorderSide(color: Colors.grey[600]!),
@@ -536,7 +679,9 @@ class _VisitorRegistrationScreenState extends State<VisitorRegistrationScreen> {
                         onChanged: (value) {
                           setState(() {
                             _selectedHostId = value;
-                            _selectedHostName = _hosts.firstWhere((host) => host.id == value).name;
+                            _selectedHostName = _hosts
+                                .firstWhere((host) => host.id == value)
+                                .name;
                           });
                         },
                         validator: (value) {
@@ -550,7 +695,7 @@ class _VisitorRegistrationScreenState extends State<VisitorRegistrationScreen> {
                   ),
                 ),
                 const SizedBox(height: 24),
-                
+
                 // Submit Button
                 SizedBox(
                   width: double.infinity,
@@ -641,7 +786,7 @@ class QRCodeDialog extends StatelessWidget {
               ],
             ),
             const SizedBox(height: 24),
-            
+
             // Visitor Info
             Container(
               width: double.infinity,
@@ -671,7 +816,7 @@ class QRCodeDialog extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 24),
-            
+
             // QR Code
             Container(
               padding: const EdgeInsets.all(16),
@@ -687,9 +832,9 @@ class QRCodeDialog extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 16),
-            
+
             Text(
-              isNewVisitor 
+              isNewVisitor
                   ? 'This is your permanent QR code. Save it for future visits to avoid re-registration!'
                   : 'Use this same QR code for entry. Your new visit has been registered.',
               style: TextStyle(
@@ -710,7 +855,7 @@ class QRCodeDialog extends StatelessWidget {
                 textAlign: TextAlign.center,
               ),
             const SizedBox(height: 24),
-            
+
             // Done Button
             SizedBox(
               width: double.infinity,

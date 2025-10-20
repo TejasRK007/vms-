@@ -1,5 +1,7 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:image_picker/image_picker.dart';
 import '../services/auth_service.dart';
 import '../utils/constants.dart';
 
@@ -17,8 +19,9 @@ class _UserRegistrationScreenState extends State<UserRegistrationScreen> {
   final _confirmPasswordController = TextEditingController();
   final _usernameController = TextEditingController();
   final _departmentController = TextEditingController();
-  
+  final ImagePicker _picker = ImagePicker();
   String _selectedRole = 'receptionist';
+  String? _photoPath;
   bool _isPasswordVisible = false;
   bool _isConfirmPasswordVisible = false;
 
@@ -30,6 +33,15 @@ class _UserRegistrationScreenState extends State<UserRegistrationScreen> {
     _usernameController.dispose();
     _departmentController.dispose();
     super.dispose();
+  }
+
+  Future<void> _capturePhoto() async {
+    final XFile? photo = await _picker.pickImage(source: ImageSource.camera);
+    if (photo != null) {
+      setState(() {
+        _photoPath = photo.path;
+      });
+    }
   }
 
   Future<void> _registerUser() async {
@@ -51,9 +63,10 @@ class _UserRegistrationScreenState extends State<UserRegistrationScreen> {
       password: _passwordController.text,
       username: _usernameController.text.trim(),
       role: _selectedRole,
-      department: _departmentController.text.trim().isEmpty 
-          ? null 
+      department: _departmentController.text.trim().isEmpty
+          ? null
           : _departmentController.text.trim(),
+      photoPath: _photoPath, // Pass photo path to signUp method
     );
 
     if (!mounted) return;
@@ -72,7 +85,7 @@ class _UserRegistrationScreenState extends State<UserRegistrationScreen> {
           backgroundColor: Colors.green,
         ),
       );
-      
+
       // Clear form
       _formKey.currentState!.reset();
       _emailController.clear();
@@ -80,7 +93,10 @@ class _UserRegistrationScreenState extends State<UserRegistrationScreen> {
       _confirmPasswordController.clear();
       _usernameController.clear();
       _departmentController.clear();
-      setState(() => _selectedRole = 'receptionist');
+      setState(() {
+        _selectedRole = 'receptionist';
+        _photoPath = null;
+      });
     }
   }
 
@@ -146,6 +162,78 @@ class _UserRegistrationScreenState extends State<UserRegistrationScreen> {
                 ),
                 const SizedBox(height: 24),
 
+                // Photo Capture Section
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(20),
+                  decoration: BoxDecoration(
+                    color: Colors.grey[850]!,
+                    borderRadius: BorderRadius.circular(16),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.grey[800]!.withOpacity(0.3),
+                        blurRadius: 8,
+                        offset: const Offset(0, 2),
+                      )
+                    ],
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'User Photo',
+                        style: TextStyle(
+                          fontSize: 18,
+                          color: Colors.grey[100],
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      Center(
+                        child: Column(
+                          children: [
+                            // Display captured photo or default icon
+                            Container(
+                              width: 120,
+                              height: 120,
+                              decoration: BoxDecoration(
+                                color: Colors.grey[700],
+                                borderRadius: BorderRadius.circular(60),
+                                border: Border.all(
+                                    color: Colors.grey[600]!, width: 2),
+                              ),
+                              child: _photoPath != null
+                                  ? ClipRRect(
+                                      borderRadius: BorderRadius.circular(60),
+                                      child: Image.file(
+                                        File(_photoPath!),
+                                        fit: BoxFit.cover,
+                                      ),
+                                    )
+                                  : Icon(
+                                      Icons.person,
+                                      size: 60,
+                                      color: Colors.grey[400],
+                                    ),
+                            ),
+                            const SizedBox(height: 16),
+                            ElevatedButton.icon(
+                              onPressed: _capturePhoto,
+                              icon: const Icon(Icons.camera_alt),
+                              label: const Text('Capture Photo'),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.grey[700],
+                                foregroundColor: Colors.white,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 24),
+
                 // Form Fields
                 Container(
                   width: double.infinity,
@@ -181,7 +269,8 @@ class _UserRegistrationScreenState extends State<UserRegistrationScreen> {
                         decoration: InputDecoration(
                           labelText: 'Full Name',
                           labelStyle: TextStyle(color: Colors.grey[400]),
-                          prefixIcon: Icon(Icons.person, color: Colors.grey[400]),
+                          prefixIcon:
+                              Icon(Icons.person, color: Colors.grey[400]),
                           border: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(12),
                           ),
@@ -214,7 +303,8 @@ class _UserRegistrationScreenState extends State<UserRegistrationScreen> {
                         decoration: InputDecoration(
                           labelText: 'Email Address',
                           labelStyle: TextStyle(color: Colors.grey[400]),
-                          prefixIcon: Icon(Icons.email, color: Colors.grey[400]),
+                          prefixIcon:
+                              Icon(Icons.email, color: Colors.grey[400]),
                           border: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(12),
                           ),
@@ -285,7 +375,8 @@ class _UserRegistrationScreenState extends State<UserRegistrationScreen> {
                         decoration: InputDecoration(
                           labelText: 'Department (Optional)',
                           labelStyle: TextStyle(color: Colors.grey[400]),
-                          prefixIcon: Icon(Icons.business, color: Colors.grey[400]),
+                          prefixIcon:
+                              Icon(Icons.business, color: Colors.grey[400]),
                           border: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(12),
                           ),
@@ -342,7 +433,8 @@ class _UserRegistrationScreenState extends State<UserRegistrationScreen> {
                           if (value.length < 6) {
                             return 'Password must be at least 6 characters';
                           }
-                          if (!RegExp(r'^(?=.*[a-zA-Z])(?=.*\d)').hasMatch(value)) {
+                          if (!RegExp(r'^(?=.*[a-zA-Z])(?=.*\d)')
+                              .hasMatch(value)) {
                             return 'Password must contain letters and numbers';
                           }
                           return null;
@@ -358,7 +450,8 @@ class _UserRegistrationScreenState extends State<UserRegistrationScreen> {
                         decoration: InputDecoration(
                           labelText: 'Confirm Password',
                           labelStyle: TextStyle(color: Colors.grey[400]),
-                          prefixIcon: Icon(Icons.lock_outline, color: Colors.grey[400]),
+                          prefixIcon:
+                              Icon(Icons.lock_outline, color: Colors.grey[400]),
                           suffixIcon: IconButton(
                             icon: Icon(
                               _isConfirmPasswordVisible
@@ -368,7 +461,8 @@ class _UserRegistrationScreenState extends State<UserRegistrationScreen> {
                             ),
                             onPressed: () {
                               setState(() {
-                                _isConfirmPasswordVisible = !_isConfirmPasswordVisible;
+                                _isConfirmPasswordVisible =
+                                    !_isConfirmPasswordVisible;
                               });
                             },
                           ),
@@ -412,7 +506,8 @@ class _UserRegistrationScreenState extends State<UserRegistrationScreen> {
                           ),
                         ),
                         child: auth.isLoading
-                            ? const CircularProgressIndicator(color: Colors.white)
+                            ? const CircularProgressIndicator(
+                                color: Colors.white)
                             : const Text(
                                 'REGISTER USER',
                                 style: TextStyle(

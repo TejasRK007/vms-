@@ -71,10 +71,10 @@ class Visitor {
       hostName: map['hostName'] ?? '',
       idImageUrl: map['idImageUrl'],
       photoUrl: map['photoUrl'],
-      visitDate: map['visitDate'] != null 
+      visitDate: map['visitDate'] != null
           ? (map['visitDate'] as Timestamp).toDate()
           : DateTime.now(),
-      checkIn: map['checkIn'] != null 
+      checkIn: map['checkIn'] != null
           ? (map['checkIn'] as Timestamp).toDate()
           : DateTime.now(),
       checkOut: map['checkOut'] != null
@@ -84,7 +84,7 @@ class Visitor {
       status: map['status'] ?? 'pending',
       qrCode: map['qrCode'],
       isRegistered: map['isRegistered'] ?? false,
-      visitHistory: map['visitHistory'] != null 
+      visitHistory: map['visitHistory'] != null
           ? List<Map<String, dynamic>>.from(map['visitHistory'])
           : null,
     );

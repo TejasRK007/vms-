@@ -1,8 +1,11 @@
+import 'dart:io';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_storage/firebase_storage.dart';
 import '../models/host_model.dart';
 
 class HostService {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  final FirebaseStorage _storage = FirebaseStorage.instance;
 
   // Add a new host
   Future<String> addHost(Host host) async {
@@ -14,6 +17,18 @@ class HostService {
       return docRef.id;
     } catch (e) {
       throw Exception('Failed to add host: $e');
+    }
+  }
+
+  // Upload host photo
+  Future<String> uploadHostPhoto(String hostId, String filePath) async {
+    try {
+      final file = File(filePath);
+      final ref = _storage.ref().child('host_photos/$hostId.jpg');
+      await ref.putFile(file);
+      return await ref.getDownloadURL();
+    } catch (e) {
+      throw Exception('Failed to upload host photo: $e');
     }
   }
 
@@ -31,11 +46,8 @@ class HostService {
 
   // Get all hosts (including inactive)
   Stream<List<Host>> getAllHosts() {
-    return _firestore
-        .collection('hosts')
-        .orderBy('name')
-        .snapshots()
-        .map((snapshot) => snapshot.docs
+    return _firestore.collection('hosts').orderBy('name').snapshots().map(
+        (snapshot) => snapshot.docs
             .map((doc) => Host.fromMap(doc.data(), doc.id))
             .toList());
   }
@@ -70,10 +82,10 @@ class HostService {
   Future<void> updateHost(Host host) async {
     try {
       if (host.id == null) throw Exception('Host ID is required for update');
-      
+
       final data = host.toMap();
       data['updatedAt'] = FieldValue.serverTimestamp();
-      
+
       await _firestore.collection('hosts').doc(host.id).update(data);
     } catch (e) {
       throw Exception('Failed to update host: $e');
@@ -120,9 +132,7 @@ class HostService {
           .collection('hosts')
           .where('isActive', isEqualTo: true)
           .orderBy('name')
-          .startAt([query])
-          .endAt([query + '\uf8ff'])
-          .get();
+          .startAt([query]).endAt([query + '\uf8ff']).get();
 
       final emailQuery = await _firestore
           .collection('hosts')
@@ -183,9 +193,8 @@ class HostService {
   Future<Map<String, dynamic>> getHostStatistics() async {
     try {
       final snapshot = await _firestore.collection('hosts').get();
-      final hosts = snapshot.docs
-          .map((doc) => Host.fromMap(doc.data(), doc.id))
-          .toList();
+      final hosts =
+          snapshot.docs.map((doc) => Host.fromMap(doc.data(), doc.id)).toList();
 
       final total = hosts.length;
       final active = hosts.where((h) => h.isActive).length;
@@ -194,7 +203,7 @@ class HostService {
       // Count by department
       final departmentCounts = <String, int>{};
       for (final host in hosts.where((h) => h.isActive)) {
-        departmentCounts[host.department] = 
+        departmentCounts[host.department] =
             (departmentCounts[host.department] ?? 0) + 1;
       }
 

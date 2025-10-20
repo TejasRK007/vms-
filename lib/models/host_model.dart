@@ -7,6 +7,7 @@ class Host {
   final String department;
   final String? phone;
   final String? designation;
+  final String? photoUrl; // Add photo URL field
   final bool isActive;
   final DateTime createdAt;
   final DateTime? updatedAt;
@@ -18,6 +19,7 @@ class Host {
     required this.department,
     this.phone,
     this.designation,
+    this.photoUrl, // Add photo URL parameter
     this.isActive = true,
     required this.createdAt,
     this.updatedAt,
@@ -30,6 +32,7 @@ class Host {
       'department': department,
       'phone': phone,
       'designation': designation,
+      'photoUrl': photoUrl, // Add photo URL to map
       'isActive': isActive,
       'createdAt': createdAt,
       'updatedAt': updatedAt,
@@ -44,8 +47,9 @@ class Host {
       department: map['department'] ?? '',
       phone: map['phone'],
       designation: map['designation'],
+      photoUrl: map['photoUrl'], // Add photo URL from map
       isActive: map['isActive'] ?? true,
-      createdAt: map['createdAt'] != null 
+      createdAt: map['createdAt'] != null
           ? (map['createdAt'] as Timestamp).toDate()
           : DateTime.now(),
       updatedAt: map['updatedAt'] != null
@@ -61,6 +65,7 @@ class Host {
     String? department,
     String? phone,
     String? designation,
+    String? photoUrl, // Add photo URL parameter
     bool? isActive,
     DateTime? createdAt,
     DateTime? updatedAt,
@@ -72,6 +77,7 @@ class Host {
       department: department ?? this.department,
       phone: phone ?? this.phone,
       designation: designation ?? this.designation,
+      photoUrl: photoUrl ?? this.photoUrl, // Add photo URL parameter
       isActive: isActive ?? this.isActive,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,

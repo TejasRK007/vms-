@@ -1,10 +1,14 @@
+import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_storage/firebase_storage.dart'; // Add firebase storage import
 
 class AuthService extends ChangeNotifier {
   final FirebaseAuth _auth = FirebaseAuth.instance;
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  final FirebaseStorage _storage =
+      FirebaseStorage.instance; // Add storage instance
 
   User? _user;
   String? _role;
@@ -66,7 +70,9 @@ class AuthService extends ChangeNotifier {
         final data = doc.data();
         if (data != null && data is Map<String, dynamic>) {
           _role = data['role']?.toString();
-          _username = data['username']?.toString() ?? _user!.displayName ?? _user!.email;
+          _username = data['username']?.toString() ??
+              _user!.displayName ??
+              _user!.email;
           _department = data['department']?.toString();
           debugPrint('User data loaded - Role: $_role, Username: $_username');
         } else {
@@ -74,7 +80,8 @@ class AuthService extends ChangeNotifier {
           _clearUserData();
         }
       } else {
-        debugPrint('Warning: User document does not exist in Firestore for UID: ${_user!.uid}');
+        debugPrint(
+            'Warning: User document does not exist in Firestore for UID: ${_user!.uid}');
         _clearUserData();
       }
     } catch (e) {
@@ -89,7 +96,20 @@ class AuthService extends ChangeNotifier {
     _department = null;
   }
 
-  Future<String?> signIn({required String email, required String password}) async {
+  // Add method to upload user photo
+  Future<String> uploadUserPhoto(String userId, String filePath) async {
+    try {
+      final file = File(filePath);
+      final ref = _storage.ref().child('user_photos/$userId.jpg');
+      await ref.putFile(file);
+      return await ref.getDownloadURL();
+    } catch (e) {
+      throw Exception('Failed to upload user photo: $e');
+    }
+  }
+
+  Future<String?> signIn(
+      {required String email, required String password}) async {
     try {
       _isLoading = true;
       notifyListeners();
@@ -138,7 +158,8 @@ class AuthService extends ChangeNotifier {
       }
       return 'Login failed - no user credential returned';
     } on FirebaseAuthException catch (e) {
-      debugPrint('FirebaseAuthException during login: ${e.code} - ${e.message}');
+      debugPrint(
+          'FirebaseAuthException during login: ${e.code} - ${e.message}');
       switch (e.code) {
         case 'user-not-found':
           return 'No account found with this email address';
@@ -177,17 +198,20 @@ class AuthService extends ChangeNotifier {
   Future<void> _createMissingUserProfile(User user) async {
     try {
       debugPrint('Creating missing user profile for: ${user.uid}');
-      
+
       // Check if document already exists but has invalid data
-      final existingDoc = await _firestore.collection('users').doc(user.uid).get();
-      
+      final existingDoc =
+          await _firestore.collection('users').doc(user.uid).get();
+
       final userData = <String, dynamic>{
         'email': user.email ?? '',
         'username': user.displayName ?? user.email?.split('@')[0] ?? 'User',
         'role': 'admin', // Default role for missing profiles
         'department': null,
-        'createdAt': existingDoc.exists && existingDoc.data() != null && existingDoc.data()!['createdAt'] != null 
-            ? existingDoc.data()!['createdAt'] 
+        'createdAt': existingDoc.exists &&
+                existingDoc.data() != null &&
+                existingDoc.data()!['createdAt'] != null
+            ? existingDoc.data()!['createdAt']
             : FieldValue.serverTimestamp(),
         'isActive': true,
         'profileCreated': 'auto-generated',
@@ -198,27 +222,29 @@ class AuthService extends ChangeNotifier {
       // Use multiple attempts with exponential backoff
       int attempts = 0;
       const maxAttempts = 5;
-      
+
       while (attempts < maxAttempts) {
         try {
           await _firestore.collection('users').doc(user.uid).set(
-            userData,
-            SetOptions(merge: true),
-          );
-          
+                userData,
+                SetOptions(merge: true),
+              );
+
           // Wait a moment for Firestore to process
           await Future.delayed(const Duration(milliseconds: 500));
-          
+
           // Verify the document was created with proper data
-          final verifyDoc = await _firestore.collection('users').doc(user.uid).get();
+          final verifyDoc =
+              await _firestore.collection('users').doc(user.uid).get();
           if (verifyDoc.exists) {
             final data = verifyDoc.data();
             if (data != null && data['role'] != null && data['email'] != null) {
-              debugPrint('Missing user profile created successfully with role: ${data['role']}');
+              debugPrint(
+                  'Missing user profile created successfully with role: ${data['role']}');
               return; // Success
             }
           }
-          
+
           throw Exception('Document created but verification failed');
         } catch (e) {
           attempts++;
@@ -242,6 +268,7 @@ class AuthService extends ChangeNotifier {
     required String username,
     required String role,
     String? department,
+    String? photoPath, // Add photo path parameter
   }) async {
     try {
       _isLoading = true;
@@ -260,15 +287,23 @@ class AuthService extends ChangeNotifier {
       );
 
       if (credential.user != null) {
-        debugPrint('Firebase Auth user created successfully: ${credential.user!.uid}');
+        debugPrint(
+            'Firebase Auth user created successfully: ${credential.user!.uid}');
 
         try {
+          // Upload photo if provided
+          String? photoUrl;
+          if (photoPath != null && photoPath.isNotEmpty) {
+            photoUrl = await uploadUserPhoto(credential.user!.uid, photoPath);
+          }
+
           // Create user document in Firestore with proper error handling
           final userData = <String, dynamic>{
             'email': email.trim(),
             'username': username.trim(),
             'role': role,
             'department': department?.trim(),
+            'photoUrl': photoUrl, // Add photo URL to user data
             'createdAt': FieldValue.serverTimestamp(),
             'isActive': true,
             'uid': credential.user!.uid,
@@ -278,9 +313,9 @@ class AuthService extends ChangeNotifier {
 
           // Use set with merge option for better reliability
           await _firestore.collection('users').doc(credential.user!.uid).set(
-            userData,
-            SetOptions(merge: true),
-          );
+                userData,
+                SetOptions(merge: true),
+              );
           debugPrint('Firestore document created successfully');
 
           // Update display name
@@ -288,7 +323,10 @@ class AuthService extends ChangeNotifier {
           debugPrint('Display name updated successfully');
 
           // Verify the document was created
-          final verifyDoc = await _firestore.collection('users').doc(credential.user!.uid).get();
+          final verifyDoc = await _firestore
+              .collection('users')
+              .doc(credential.user!.uid)
+              .get();
           if (!verifyDoc.exists) {
             throw Exception('Failed to verify user document creation');
           }
@@ -312,7 +350,8 @@ class AuthService extends ChangeNotifier {
       }
       return 'Registration failed - no user credential returned';
     } on FirebaseAuthException catch (e) {
-      debugPrint('FirebaseAuthException during registration: ${e.code} - ${e.message}');
+      debugPrint(
+          'FirebaseAuthException during registration: ${e.code} - ${e.message}');
       switch (e.code) {
         case 'weak-password':
           return 'Password is too weak (minimum 6 characters required)';
@@ -330,7 +369,8 @@ class AuthService extends ChangeNotifier {
           return 'Registration failed: ${e.message ?? e.code}';
       }
     } on FirebaseException catch (e) {
-      debugPrint('FirebaseException during registration: ${e.code} - ${e.message}');
+      debugPrint(
+          'FirebaseException during registration: ${e.code} - ${e.message}');
       if (e.code == 'permission-denied') {
         return 'Permission denied. Please check Firestore security rules.';
       }

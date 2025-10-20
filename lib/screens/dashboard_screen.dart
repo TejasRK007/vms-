@@ -1,3 +1,4 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'scan_id_screen.dart';
 import 'visitor_list_screen.dart';
@@ -10,6 +11,7 @@ import 'visitor_self_register_screen.dart';
 import 'host_management_screen.dart';
 import 'notifications_screen.dart';
 import 'user_registration_screen.dart';
+import 'user_list_screen.dart'; // Add user list screen import
 import 'guard_register_visitor_screen.dart';
 import 'all_visitor_history_screen.dart';
 import 'entry_exit_history_screen.dart';
@@ -26,7 +28,7 @@ class DashboardScreen extends StatelessWidget {
 
   Widget _buildNotificationButton(BuildContext context, String role) {
     final FirebaseServices _firebaseServices = FirebaseServices();
-    
+
     if (role == 'admin' || role == 'host') {
       return StreamBuilder(
         stream: _firebaseServices.getAllPendingVisitors(),
@@ -35,7 +37,7 @@ class DashboardScreen extends StatelessWidget {
           if (snapshot.hasData) {
             pendingCount = snapshot.data?.length ?? 0;
           }
-          
+
           return Stack(
             children: [
               IconButton(
@@ -43,7 +45,8 @@ class DashboardScreen extends StatelessWidget {
                 onPressed: () {
                   Navigator.push(
                     context,
-                    MaterialPageRoute(builder: (_) => const NotificationsScreen()),
+                    MaterialPageRoute(
+                        builder: (_) => const NotificationsScreen()),
                   );
                 },
                 tooltip: 'Notifications',
@@ -103,7 +106,7 @@ class DashboardScreen extends StatelessWidget {
     } else {
       NotificationService().stopAdminEventListeners();
     }
-    
+
     return Scaffold(
       backgroundColor: Colors.black,
       appBar: AppBar(
@@ -112,18 +115,94 @@ class DashboardScreen extends StatelessWidget {
         elevation: 0,
         actions: [
           _buildNotificationButton(context, role),
-          IconButton(
-            icon: const Icon(Icons.logout),
-            onPressed: () async {
-              await FirebaseAuth.instance.signOut();
-              // Navigate to login screen instead of just popping
-              Navigator.pushNamedAndRemoveUntil(
-                context, 
-                '/login', 
-                (route) => false
+          // User profile button with photo
+          StreamBuilder<DocumentSnapshot>(
+            stream: FirebaseFirestore.instance
+                .collection('users')
+                .doc(auth.user?.uid)
+                .snapshots(),
+            builder: (context, snapshot) {
+              if (snapshot.hasData && snapshot.data!.exists) {
+                final userData = snapshot.data!.data() as Map<String, dynamic>;
+                final photoUrl = userData['photoUrl'] as String?;
+                final username = userData['username'] as String? ?? 'User';
+
+                return PopupMenuButton<String>(
+                  icon: Container(
+                    width: 40,
+                    height: 40,
+                    decoration: BoxDecoration(
+                      color: Colors.grey[700],
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(color: Colors.grey[600]!, width: 2),
+                    ),
+                    child: photoUrl != null && photoUrl.isNotEmpty
+                        ? ClipRRect(
+                            borderRadius: BorderRadius.circular(20),
+                            child: Image.network(
+                              photoUrl,
+                              fit: BoxFit.cover,
+                              errorBuilder: (context, error, stackTrace) {
+                                return Icon(Icons.person,
+                                    size: 20, color: Colors.grey[300]);
+                              },
+                            ),
+                          )
+                        : Icon(Icons.person, size: 20, color: Colors.grey[300]),
+                  ),
+                  onSelected: (value) {
+                    if (value == 'logout') {
+                      FirebaseAuth.instance.signOut();
+                      Navigator.pushNamedAndRemoveUntil(
+                          context, '/login', (route) => false);
+                    }
+                  },
+                  itemBuilder: (context) => [
+                    PopupMenuItem<String>(
+                      value: 'profile',
+                      enabled: false,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            username,
+                            style: const TextStyle(fontWeight: FontWeight.bold),
+                          ),
+                          Text(
+                            role.toUpperCase(),
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Colors.grey[600],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const PopupMenuDivider(),
+                    PopupMenuItem<String>(
+                      value: 'logout',
+                      child: const Row(
+                        children: [
+                          Icon(Icons.logout, size: 20),
+                          SizedBox(width: 10),
+                          Text('Logout'),
+                        ],
+                      ),
+                    ),
+                  ],
+                );
+              }
+              return IconButton(
+                icon: const Icon(Icons.logout),
+                onPressed: () async {
+                  await FirebaseAuth.instance.signOut();
+                  // Navigate to login screen instead of just popping
+                  Navigator.pushNamedAndRemoveUntil(
+                      context, '/login', (route) => false);
+                },
+                tooltip: 'Logout',
               );
             },
-            tooltip: 'Logout',
           ),
         ],
       ),
@@ -229,6 +308,13 @@ class DashboardScreen extends StatelessWidget {
                 Icons.approval,
                 'Checkout Approvals',
                 const AdminCheckoutApprovalScreen(),
+              ),
+            if (role == 'admin')
+              _buildDashboardItem(
+                context,
+                Icons.group,
+                'User List',
+                const UserListScreen(),
               ),
             if (role == 'admin')
               _buildDashboardItem(
